@@ -145,6 +145,59 @@
             border-radius: 10px;
             display: none;
         }
+        
+        .debug-panel {
+            position: absolute;
+            bottom: 80px;
+            right: 10px;
+            width: 300px;
+            max-height: 300px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            border-radius: 8px;
+            z-index: 1500;
+            font-family: monospace;
+            font-size: 11px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .debug-header {
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .debug-header button {
+            background: none;
+            border: none;
+            color: #ff5555;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            line-height: 1;
+        }
+        
+        .debug-content {
+            padding: 10px;
+            max-height: 250px;
+            overflow-y: auto;
+            line-height: 1.4;
+        }
+        
+        .debug-content div {
+            margin-bottom: 5px;
+            word-wrap: break-word;
+        }
+        
+        .debug-success { color: #00ff00; }
+        .debug-error { color: #ff5555; }
+        .debug-warning { color: #ffaa00; }
+        .debug-info { color: #5599ff; }
     </style>
 </head>
 <body>
@@ -167,6 +220,15 @@
         <p>⏳ Завантаження...</p>
     </div>
     
+    <!-- Debug панель -->
+    <div class="debug-panel" id="debug-panel">
+        <div class="debug-header">
+            <strong>🐛 Debug</strong>
+            <button id="toggle-debug">×</button>
+        </div>
+        <div class="debug-content" id="debug-content"></div>
+    </div>
+    
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
@@ -174,6 +236,41 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
+        // ===== DEBUG ПАНЕЛЬ =====
+        let debugLogs = [];
+        function addDebugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString('uk-UA');
+            debugLogs.push({ timestamp, message, type });
+            if (debugLogs.length > 50) debugLogs.shift();
+            
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                debugContent.innerHTML = debugLogs.map(log => 
+                    `<div class="debug-${log.type}">[${log.timestamp}] ${log.message}</div>`
+                ).join('');
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+        }
+        
+        // Перевизначити console.log для debug панелі
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addDebugLog(args.join(' '), 'info');
+        };
+        
+        const originalError = console.error;
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addDebugLog(args.join(' '), 'error');
+        };
+        
+        const originalWarn = console.warn;
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addDebugLog(args.join(' '), 'warning');
+        };
+        
         // ===== ДЕТАЛЬНЕ ЛОГУВАННЯ =====
         console.log('='.repeat(60));
         console.log('🚀 WEBAPP START:', new Date().toISOString());
@@ -301,16 +398,21 @@
         
         // Обробник кнопки "Підтвердити"
         console.log('🔧 Registering MainButton.onClick handler...');
-        tg.MainButton.onClick(() => {
+        
+        // Зберегти handler окремо для можливості його виклику
+        const mainButtonHandler = () => {
             console.log('='.repeat(60));
             console.log('🔘 MAINBUTTON CLICK EVENT:', new Date().toISOString());
             console.log('='.repeat(60));
+            addDebugLog('🔘 Кнопка підтвердження натиснута!', 'success');
+            
             console.log('📍 Selected coords:', selectedCoords);
             console.log('🔍 Type of selectedCoords:', typeof selectedCoords);
             console.log('🔍 selectedCoords value:', JSON.stringify(selectedCoords));
 
             if (selectedCoords) {
                 console.log('✅ Coordinates are valid, preparing data...');
+                addDebugLog('✅ Координати валідні', 'success');
                 
                 const dataToSend = {
                     type: 'location',
@@ -322,16 +424,26 @@
                 console.log('  - type:', dataToSend.type);
                 console.log('  - latitude:', dataToSend.latitude);
                 console.log('  - longitude:', dataToSend.longitude);
+                
+                addDebugLog(`📤 Дані: ${JSON.stringify(dataToSend)}`, 'info');
 
                 try {
+                    // Показати індикатор завантаження
+                    document.getElementById('loading').style.display = 'block';
+                    
                     // Відправити дані в бота
                     const jsonData = JSON.stringify(dataToSend);
                     console.log('📦 JSON string:', jsonData);
                     console.log('📦 JSON length:', jsonData.length);
+                    addDebugLog(`📦 JSON довжина: ${jsonData.length}`, 'info');
 
                     console.log('📡 Calling tg.sendData()...');
+                    addDebugLog('📡 Викликаю tg.sendData()...', 'info');
+                    
                     tg.sendData(jsonData);
+                    
                     console.log('✅ tg.sendData() called successfully!');
+                    addDebugLog('✅ tg.sendData() виконано!', 'success');
 
                     // Вібрація успіху
                     if (tg.HapticFeedback) {
@@ -339,12 +451,16 @@
                         tg.HapticFeedback.notificationOccurred('success');
                     }
 
-                    // ВАЖЛИВО! Закрити WebApp після відправки
-                    // Це дозволить Telegram передати дані в бота
-                    console.log('🚪 Calling tg.close()...');
-                    tg.close();
-                    console.log('✅ tg.close() called!');
-                    console.log('='.repeat(60));
+                    // Затримка перед закриттям для відображення повідомлення
+                    setTimeout(() => {
+                        // ВАЖЛИВО! Закрити WebApp після відправки
+                        // Це дозволить Telegram передати дані в бота
+                        console.log('🚪 Calling tg.close()...');
+                        addDebugLog('🚪 Закриваю WebApp...', 'warning');
+                        tg.close();
+                        console.log('✅ tg.close() called!');
+                        console.log('='.repeat(60));
+                    }, 500);
 
                 } catch (error) {
                     console.error('='.repeat(60));
@@ -354,6 +470,8 @@
                     console.error('Error message:', error.message);
                     console.error('Error stack:', error.stack);
                     console.error('='.repeat(60));
+                    addDebugLog(`❌ Помилка: ${error.message}`, 'error');
+                    document.getElementById('loading').style.display = 'none';
                     alert('Помилка відправки даних: ' + error.message);
                 }
             } else {
@@ -361,9 +479,12 @@
                 console.warn('⚠️ NO COORDINATES SELECTED!');
                 console.warn('='.repeat(60));
                 console.warn('selectedCoords is:', selectedCoords);
+                addDebugLog('⚠️ Координати не вибрані!', 'warning');
                 alert('Будь ласка, оберіть точку на карті');
             }
-        });
+        };
+        
+        tg.MainButton.onClick(mainButtonHandler);
         console.log('✅ MainButton.onClick handler registered');
         
         // Кнопка "Моя геолокація"
@@ -431,6 +552,21 @@
         
         // Показати кнопку "Назад" в Telegram
         tg.BackButton.show();
+        
+        // Debug панель toggle
+        document.getElementById('toggle-debug').addEventListener('click', () => {
+            const panel = document.getElementById('debug-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Додати подвійну перевірку для MainButton
+        console.log('🔍 Final MainButton state check:');
+        console.log('  - onClick handler registered:', !!tg.MainButton.onClick);
+        console.log('  - isVisible:', tg.MainButton.isVisible);
+        console.log('  - isActive:', tg.MainButton.isActive);
+        console.log('  - text:', tg.MainButton.text);
+        
+        addDebugLog('✅ WebApp готовий до роботи', 'success');
     </script>
 </body>
 </html>
