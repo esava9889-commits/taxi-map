@@ -45,13 +45,14 @@ await message.answer("Оберіть місце на карті:", reply_markup=
 ```python
 from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 import json
 
 router = Router()
 
 @router.message(F.web_app_data)
-async def handle_web_app_data(message: Message):
-    """Обробник даних з WebApp"""
+async def handle_web_app_data(message: Message, state: FSMContext):
+    """Обробник даних з WebApp - отримання місця для таксі"""
     try:
         # Отримати дані з WebApp
         data = json.loads(message.web_app_data.data)
@@ -62,21 +63,31 @@ async def handle_web_app_data(message: Message):
         if data.get('type') == 'location':
             latitude = data.get('latitude')
             longitude = data.get('longitude')
+            address = data.get('address', 'Адреса не визначена')
             
             print(f"📌 Координати: {latitude}, {longitude}")
+            print(f"🏠 Адреса: {address}")
+            
+            # Зберегти дані в FSM для подальшого використання
+            await state.update_data(
+                pickup_lat=latitude,
+                pickup_lon=longitude,
+                pickup_address=address
+            )
             
             # Відправити локацію назад користувачу
             await message.answer_location(latitude=latitude, longitude=longitude)
             
-            # Або відправити текстове повідомлення
+            # Показати адресу та запитати наступний крок
             await message.answer(
-                f"✅ Отримано координати:\n"
-                f"📍 Широта: {latitude}\n"
-                f"📍 Довгота: {longitude}"
+                f"✅ <b>Місце подачі таксі:</b>\n"
+                f"📍 {address}\n\n"
+                f"Тепер оберіть <b>куди їдемо</b> 🎯",
+                parse_mode="HTML"
             )
             
-            # Тут ваша логіка обробки координат
-            # Наприклад, збереження в базу даних, пошук адреси і т.д.
+            # Тут можна перейти до наступного стану FSM
+            # await state.set_state(TaxiStates.waiting_for_destination)
             
         else:
             await message.answer("❌ Невідомий тип даних")
@@ -100,7 +111,7 @@ import json
 
 @dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
 async def handle_web_app_data(message: types.Message, state: FSMContext):
-    """Обробник даних з WebApp"""
+    """Обробник даних з WebApp - отримання місця для таксі"""
     try:
         # Отримати дані з WebApp
         data = json.loads(message.web_app_data.data)
@@ -111,20 +122,31 @@ async def handle_web_app_data(message: types.Message, state: FSMContext):
         if data.get('type') == 'location':
             latitude = data.get('latitude')
             longitude = data.get('longitude')
+            address = data.get('address', 'Адреса не визначена')
             
             print(f"📌 Координати: {latitude}, {longitude}")
+            print(f"🏠 Адреса: {address}")
+            
+            # Зберегти дані в FSM для подальшого використання
+            await state.update_data(
+                pickup_lat=latitude,
+                pickup_lon=longitude,
+                pickup_address=address
+            )
             
             # Відправити локацію назад користувачу
             await message.answer_location(latitude=latitude, longitude=longitude)
             
-            # Або відправити текстове повідомлення
+            # Показати адресу та запитати наступний крок
             await message.answer(
-                f"✅ Отримано координати:\n"
-                f"📍 Широта: {latitude}\n"
-                f"📍 Довгота: {longitude}"
+                f"✅ <b>Місце подачі таксі:</b>\n"
+                f"📍 {address}\n\n"
+                f"Тепер оберіть <b>куди їдемо</b> 🎯",
+                parse_mode="HTML"
             )
             
-            # Тут ваша логіка обробки координат
+            # Тут можна перейти до наступного стану FSM
+            # await TaxiStates.waiting_for_destination.set()
             
         else:
             await message.answer("❌ Невідомий тип даних")
@@ -179,50 +201,105 @@ ngrok http 8000
 # Використати URL типу: https://xxxx.ngrok.io/index.html
 ```
 
-### 6. 📊 Приклад повної реалізації
+### 6. 📊 Приклад повної реалізації для таксі-бота
 
 ```python
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import Command
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 import json
 import asyncio
+
+# FSM для замовлення таксі
+class TaxiOrder(StatesGroup):
+    waiting_for_pickup = State()
+    waiting_for_destination = State()
+    confirming_order = State()
 
 # Ініціалізація
 bot = Bot(token="YOUR_BOT_TOKEN")
 dp = Dispatcher()
 router = Router()
 
-# Команда /start
-@router.message(Command("start"))
-async def cmd_start(message: Message):
+# Команда /taxi - почати замовлення таксі
+@router.message(Command("taxi"))
+async def cmd_taxi(message: Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="🗺 Обрати на карті",
+            text="📍 Обрати місце подачі на карті",
             web_app=WebAppInfo(url="https://ваш-домен.com/index.html")
         )]
     ])
+    await state.set_state(TaxiOrder.waiting_for_pickup)
     await message.answer(
-        "👋 Привіт! Натисни кнопку, щоб обрати місце на карті:",
-        reply_markup=keyboard
+        "🚕 <b>Замовлення таксі</b>\n\n"
+        "Крок 1: Оберіть <b>місце подачі</b> на карті 📍",
+        reply_markup=keyboard,
+        parse_mode="HTML"
     )
 
 # Обробник даних з WebApp
 @router.message(F.web_app_data)
-async def handle_web_app_data(message: Message):
+async def handle_web_app_data(message: Message, state: FSMContext):
     try:
         data = json.loads(message.web_app_data.data)
+        current_state = await state.get_state()
         
         if data.get('type') == 'location':
             latitude = data.get('latitude')
             longitude = data.get('longitude')
+            address = data.get('address', 'Адреса не визначена')
             
             # Відправити локацію
             await message.answer_location(latitude=latitude, longitude=longitude)
-            await message.answer(
-                f"✅ Прийнято! Ваша адреса:\n"
-                f"📍 {latitude:.6f}, {longitude:.6f}"
-            )
+            
+            # Обробка залежно від стану
+            if current_state == TaxiOrder.waiting_for_pickup:
+                # Зберегти місце подачі
+                await state.update_data(
+                    pickup_lat=latitude,
+                    pickup_lon=longitude,
+                    pickup_address=address
+                )
+                
+                # Запитати місце призначення
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="🎯 Обрати куди їдемо",
+                        web_app=WebAppInfo(url="https://ваш-домен.com/index.html")
+                    )]
+                ])
+                await state.set_state(TaxiOrder.waiting_for_destination)
+                await message.answer(
+                    f"✅ <b>Місце подачі:</b>\n📍 {address}\n\n"
+                    f"Крок 2: Тепер оберіть <b>куди їдемо</b> 🎯",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                
+            elif current_state == TaxiOrder.waiting_for_destination:
+                # Зберегти місце призначення
+                await state.update_data(
+                    destination_lat=latitude,
+                    destination_lon=longitude,
+                    destination_address=address
+                )
+                
+                # Показати підсумок замовлення
+                data = await state.get_data()
+                await message.answer(
+                    f"🚕 <b>Підсумок замовлення:</b>\n\n"
+                    f"📍 <b>Звідки:</b>\n{data['pickup_address']}\n\n"
+                    f"🎯 <b>Куди:</b>\n{address}\n\n"
+                    f"Підтвердіть замовлення?",
+                    parse_mode="HTML"
+                )
+                
+                # Тут можна додати кнопки підтвердження
+                # або автоматично створити замовлення
+                await state.clear()
             
     except Exception as e:
         print(f"Error: {e}")
